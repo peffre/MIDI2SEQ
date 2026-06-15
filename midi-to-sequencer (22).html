@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MIDI → Step Sequencer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f9f9f8; --surface: #ffffff; --surface2: #f1f0ec;
+    --border: rgba(0,0,0,0.12); --text: #1a1a18; --text2: #6b6b67; --text3: #a0a09c;
+    --green: #1D9E75; --green-bg: #E1F5EE; --green-text: #0F6E56;
+    --blue: #185FA5;  --blue-bg: #E6F1FB;  --blue-text: #0C447C;
+    --amber: #BA7517; --amber-bg: #FAEEDA; --amber-text: #633806;
+    --red: #D85A30;   --red-bg: #FAECE7;   --red-text: #712B13;
+    --purple-bg: #EEEDFE; --purple-text: #3C3489;
+    --radius: 8px; --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a18; --surface: #242422; --surface2: #2e2e2c;
+      --border: rgba(255,255,255,0.1); --text: #f0efe8; --text2: #a0a09c; --text3: #6b6b67;
+      --green-bg: #085041; --green-text: #9FE1CB;
+      --blue-bg: #0C447C;  --blue-text: #B5D4F4;
+      --amber-bg: #633806; --amber-text: #FAC775;
+      --red-bg: #712B13;   --red-text: #F5C4B3;
+      --purple-bg: #3C3489; --purple-text: #CECBF6;
+    }
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; padding: 20px; min-height: 100vh; }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 4px; }
+  h2 { font-size: 11px; font-weight: 500; margin-bottom: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.07em; }
+  .header { margin-bottom: 16px; }
+  .header p { color: var(--text2); font-size: 13px; }
+  .top-grid { display: grid; grid-template-columns: 260px 1fr; gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 720px) { .top-grid { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 14px; }
+  .status-bar { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 9px 14px; margin-bottom: 14px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--amber); }
+  .dot.ok { background: var(--green); } .dot.err { background: var(--red); }
+  #status-text { font-size: 13px; color: var(--text2); }
+  button { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; padding: 7px 14px; cursor: pointer; font-family: inherit; transition: background 0.1s; }
+  button:hover { background: var(--surface2); }
+  button:active { transform: scale(0.98); }
+  button.primary { background: var(--green); color: #fff; border-color: var(--green); font-weight: 500; }
+  button.primary:hover { opacity: 0.88; }
+  button.arm { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber); font-weight: 500; }
+  button.danger { background: var(--red); color: #fff; border-color: var(--red); }
+  button.danger:hover { opacity: 0.88; }
+  button:disabled { opacity: 0.38; cursor: default; transform: none; }
+  .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-bottom: 12px; }
+  .metric { background: var(--surface2); border-radius: var(--radius); padding: 9px 10px; }
+  .metric-label { font-size: 11px; color: var(--text2); margin-bottom: 1px; }
+  .metric-val { font-size: 19px; font-weight: 500; font-family: 'SF Mono','Fira Mono',monospace; }
+  .vel-track { height: 5px; background: var(--border); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+  .vel-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.08s; width: 0%; }
+  select, input[type=number] { background: var(--surface2); border: 0.5px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; padding: 5px 9px; font-family: inherit; }
+  input[type=range] { accent-color: var(--green); }
+  .tag { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 10px; font-family: 'SF Mono','Fira Mono',monospace; }
+  .tag-on  { background: var(--green-bg);  color: var(--green-text); }
+  .tag-off { background: var(--surface2);  color: var(--text2); }
+  .tag-cc  { background: var(--purple-bg); color: var(--purple-text); }
+  #event-log { max-height: 140px; overflow-y: auto; border: 0.5px solid var(--border); border-radius: var(--radius); padding: 0 10px; font-family: 'SF Mono','Fira Mono',monospace; font-size: 11px; }
+  .ev-row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; border-bottom: 0.5px solid var(--border); animation: fi 0.1s ease; }
+  .ev-row:last-child { border-bottom: none; }
+  @keyframes fi { from { opacity:0; transform:translateY(-3px); } to { opacity:1; } }
+  .ev-time { color: var(--text3); min-width: 56px; }
+  .ev-msg  { color: var(--text); flex: 1; }
+  .ev-raw  { color: var(--text3); font-size: 10px; }
+  .seq-table { width: 100%; border-collapse: separate; border-spacing: 2px; margin: 10px 0; table-layout: fixed; }
+  .seq-table th { font-size: 9px; font-weight: 500; color: var(--text3); text-align: center; padding: 1px 0; letter-spacing: 0em; }
+  .seq-table td { border-radius: 3px; text-align: center; font-size: 9px; font-family: 'SF Mono','Fira Mono',monospace; font-weight: 500; border: 0.5px solid var(--border); background: var(--surface2); color: var(--text3); height: 32px; min-width: 0; padding: 0; transition: background 0.12s, color 0.12s; overflow: hidden; }
+  .seq-table td .cn { font-size: 8px; display: block; opacity: 0.6; font-weight: 400; }
+  .seq-table .row-label { font-size: 11px; font-weight: 500; color: var(--text2); text-align: right; padding-right: 4px; white-space: nowrap; width: 24px; }
+  .seq-table td.is-note { background: var(--green-bg); color: var(--green-text); border-color: var(--green); }
+  .seq-table td.is-tie  { background: var(--blue-bg);  color: var(--blue-text);  border-color: var(--blue); }
+  .seq-table td.is-rest { background: var(--surface2); color: var(--text3); }
+  .seq-table td.active-step { outline: 2px solid var(--amber); outline-offset: -1px; }
+  .progress-wrap { margin-bottom: 10px; }
+  .progress-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text3); margin-bottom: 3px; }
+  .progress-track { background: var(--surface2); border-radius: 4px; height: 7px; overflow: hidden; border: 0.5px solid var(--border); }
+  #progress-bar { height: 100%; background: var(--green); width: 0%; transition: width 0.08s; }
+  #output-area { width: 100%; min-height: 90px; background: var(--surface2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-family: 'SF Mono','Fira Mono',monospace; font-size: 12px; color: var(--text); resize: vertical; line-height: 1.9; outline: none; }
+  .active-notes { display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; }
+  .note-pill { background: var(--blue-bg); color: var(--blue-text); border-radius: 12px; padding: 2px 9px; font-size: 12px; font-family: 'SF Mono','Fira Mono',monospace; font-weight: 500; }
+  .rec-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--red);   margin-right: 5px; animation: blink 0.75s step-start infinite; }
+  .arm-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); margin-right: 5px; animation: blink 1.2s  step-start infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .ports-list { font-size: 12px; font-family: 'SF Mono','Fira Mono',monospace; color: var(--text2); white-space: pre; }
+  .seq-table td.play-step { outline: 2px solid var(--red); outline-offset: -1px; }
+  .metro-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+  .metro-row label { font-size: 13px; color: var(--text2); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>MIDI → Step Sequencer</h1>
+  <p>4 voices · 32 steps · note / tie / rest · starts on first note</p>
+</div>
+
+<div class="status-bar">
+  <div class="dot" id="dot"></div>
+  <span id="status-text">Click "Connect MIDI" to begin</span>
+  <div style="margin-left:auto;">
+    <button class="primary" id="connect-btn" onclick="connectMidi()">Connect MIDI</button>
+  </div>
+</div>
+
+<div class="top-grid">
+
+  <!-- LEFT -->
+  <div>
+    <div class="card" style="margin-bottom:12px;">
+      <h2>Live input</h2>
+      <div class="metric-grid">
+        <div class="metric"><div class="metric-label">Note</div><div class="metric-val" id="m-note">—</div></div>
+        <div class="metric">
+          <div class="metric-label">Velocity</div>
+          <div class="metric-val" id="m-vel">—</div>
+          <div class="vel-track"><div class="vel-fill" id="vel-fill"></div></div>
+        </div>
+        <div class="metric"><div class="metric-label">Channel</div><div class="metric-val" id="m-ch">—</div></div>
+        <div class="metric"><div class="metric-label">Messages</div><div class="metric-val" id="m-count">0</div></div>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;">Active notes</div>
+      <div class="active-notes" id="active-notes"><span style="color:var(--text3);font-size:12px;">—</span></div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px;">
+      <h2>MIDI port</h2>
+      <select id="port-select" onchange="switchPort()" style="width:100%;margin-bottom:8px;"><option value="all">All ports</option></select>
+      <div class="ports-list" id="ports-list">—</div>
+    </div>
+
+    <div class="card">
+      <h2>Event log</h2>
+      <div class="btn-row" style="margin-bottom:7px;">
+        <button onclick="clearLog()" style="font-size:12px;padding:4px 10px;">Clear</button>
+      </div>
+      <div id="event-log"><div class="ev-row"><span class="ev-msg" style="color:var(--text3);">Waiting for MIDI…</span></div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div>
+    <div class="card" style="margin-bottom:12px;">
+      <h2>Tempo</h2>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label style="font-size:13px;color:var(--text2);">BPM</label>
+        <input type="number" id="bpm" value="110" min="20" max="300" style="width:70px;" oninput="updateStepDisplay()">
+        <label style="font-size:13px;color:var(--text2);">Step</label>
+        <select id="step-size" onchange="updateStepDisplay()">
+          <option value="4">1/4</option>
+          <option value="8">1/8</option>
+          <option value="16" selected>1/16</option>
+        </select>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:8px;" id="step-ms-display"></div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
+        <label style="font-size:13px;color:var(--text2);">Note-off tolerance</label>
+        <input type="range" id="noteoff-tol" min="0" max="50" value="20" step="1" style="width:100px;" oninput="updateTolLabel()">
+        <span style="font-size:12px;color:var(--text3);min-width:38px;" id="noteoff-tol-label">20%</span>
+        <span style="font-size:11px;color:var(--text3);">of step</span>
+      </div>
+
+      <div class="metro-row">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="metro-on" checked style="width:14px;height:14px;cursor:pointer;accent-color:var(--green);">
+          Metronome
+        </label>
+        <label>Volume</label>
+        <input type="range" id="metro-vol" min="0" max="100" value="70" step="1" style="width:80px;">
+        <span style="font-size:12px;color:var(--text3);min-width:30px;" id="metro-vol-label">70%</span>
+        <label>Click on</label>
+        <select id="metro-div">
+          <option value="beat" selected>Beat</option>
+          <option value="step">Every step</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px;">
+      <h2>Record</h2>
+      <div class="btn-row" style="margin-bottom:10px;">
+        <button class="primary" id="arm-btn" onclick="armCapture()">⬤ Arm</button>
+        <button class="danger"  id="stop-btn" onclick="stopCapture()" disabled>■ Stop</button>
+        <button onclick="clearOutput()">Clear</button>
+      </div>
+      <div id="record-status" style="font-size:13px;color:var(--text3);min-height:20px;margin-bottom:8px;"></div>
+      <div class="progress-wrap" id="progress-wrap" style="display:none;">
+        <div class="progress-labels">
+          <span id="progress-label">Waiting…</span>
+          <span id="countdown-label"></span>
+        </div>
+        <div class="progress-track"><div id="progress-bar"></div></div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="seq-table" id="seq-table">
+          <thead><tr><th></th></tr></thead>
+          <tbody id="seq-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Output</h2>
+      <textarea id="output-area" readonly placeholder="Recorded sequence appears here…"></textarea>
+      <div class="btn-row" style="margin-top:8px;">
+        <button onclick="copyOutput()">Copy</button>
+        <button onclick="downloadOutput()">Download .txt</button>
+        <span style="font-size:12px;color:var(--text3);margin-left:auto;" id="step-count"></span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px;">
+      <h2>Playback</h2>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+        <label style="font-size:13px;color:var(--text2);">Output port</label>
+        <select id="play-port" style="flex:1;min-width:120px;"><option value="">— none —</option></select>
+        <label style="font-size:13px;color:var(--text2);">Ch</label>
+        <input type="number" id="play-ch" value="1" min="1" max="16" style="width:52px;">
+      </div>
+      <div class="btn-row" style="margin-bottom:10px;">
+        <button class="primary" id="play-btn" onclick="startPlayback()" disabled>▶ Play</button>
+        <button class="danger"  id="playStop-btn" onclick="stopPlayback()" disabled>■ Stop</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="font-size:12px;color:var(--text3);" id="play-status">No sequence loaded</div>
+        <div style="margin-left:auto;font-size:12px;color:var(--text3);" id="play-step-display"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const noteName = n => NOTES[n % 12] + (Math.floor(n / 12) - 1);
+const STEPS = 32;
+const ROWS  = 4;
+
+let midiAccess = null;
+let msgCount   = 0;
+let activeNotes = new Set();
+
+// State machine: 'idle' | 'armed' | 'recording'
+let recState        = 'idle';
+let captureStartTime = null;
+let stepDurationMs  = 250;
+let progressTimer   = null;
+let eventLog        = [];
+let finalGrid       = [];
+let voiceMap        = {};   // midi pitch -> row index
+let nextVoice       = 0;
+
+// ── Metronome (Web Audio lookahead scheduler) ─────────────────────────────
+
+let audioCtx          = null;
+let metroRunning      = false;
+let metroNextTime     = 0;     // AudioContext time of next scheduled click
+let metroStepIdx      = 0;     // which of the 16 steps we're on
+let metroSchedTimer   = null;
+
+const LOOKAHEAD_MS   = 25;    // scheduler poll interval
+const SCHEDULE_AHEAD = 0.12;  // seconds ahead to schedule
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function scheduleClick(time, accent) {
+  const vol = parseInt(document.getElementById('metro-vol').value) / 100;
+  if (vol === 0) return;
+  const ctx = getAudioCtx();
+
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(accent ? 1400 : 900, time);
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol * (accent ? 1.0 : 0.55), time + 0.002);
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + (accent ? 0.065 : 0.04));
+  osc.start(time);
+  osc.stop(time + 0.1);
+}
+
+function metroScheduler() {
+  if (!metroRunning) return;
+  const ctx         = getAudioCtx();
+  const stepDiv     = document.getElementById('metro-div').value;
+  const stepsPerBeat = parseInt(document.getElementById('step-size').value) / 4;
+  const clickEvery  = (stepDiv === 'beat') ? Math.max(1, Math.round(stepsPerBeat)) : 1;
+
+  while (metroNextTime < ctx.currentTime + SCHEDULE_AHEAD) {
+    if (metroStepIdx % clickEvery === 0) {
+      const accent = (metroStepIdx % Math.max(1, Math.round(stepsPerBeat)) === 0);
+      scheduleClick(metroNextTime, accent);
+    }
+    metroNextTime += stepDurationMs / 1000;
+    metroStepIdx = (metroStepIdx + 1) % STEPS;
+  }
+}
+
+function startMetro(audioStartTime, startStepIdx) {
+  if (!document.getElementById('metro-on').checked) return;
+  stopMetro();
+  metroRunning   = true;
+  metroStepIdx   = startStepIdx || 0;
+  metroNextTime  = audioStartTime;
+  metroSchedTimer = setInterval(metroScheduler, LOOKAHEAD_MS);
+}
+
+function stopMetro() {
+  metroRunning = false;
+  clearInterval(metroSchedTimer);
+}
+
+document.getElementById('metro-vol').addEventListener('input', function() {
+  document.getElementById('metro-vol-label').textContent = this.value + '%';
+});
+
+// ── MIDI ──────────────────────────────────────────────────────────────────
+
+function connectMidi() {
+  const btn = document.getElementById('connect-btn');
+  btn.disabled = true; btn.textContent = 'Connecting…';
+  if (!navigator.requestMIDIAccess) {
+    setStatus('err', 'Web MIDI not supported — use Chrome or Edge');
+    btn.disabled = false; btn.textContent = 'Retry'; return;
+  }
+  navigator.requestMIDIAccess({ sysex: false }).then(access => {
+    midiAccess = access;
+    bindAll(access); refreshPorts(access);
+    access.onstatechange = () => { bindAll(access); refreshPorts(access); };
+    const n = access.inputs.size;
+    setStatus('ok', n > 0 ? 'Connected — ' + n + ' input' + (n>1?'s':'') + ' detected' : 'Connected — no devices found');
+    btn.textContent = 'Reconnect'; btn.disabled = false;
+    refreshPlayPorts();
+  }).catch(err => {
+    setStatus('err', err.name + ': ' + err.message);
+    btn.textContent = 'Retry'; btn.disabled = false;
+  });
+}
+
+function bindAll(access) {
+  const chosen = document.getElementById('port-select').value;
+  access.inputs.forEach(inp => { inp.onmidimessage = (chosen==='all'||inp.id===chosen) ? onMsg : null; });
+}
+
+function refreshPorts(access) {
+  const sel = document.getElementById('port-select');
+  const prev = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  const list = [];
+  access.inputs.forEach(inp => {
+    const opt = document.createElement('option');
+    opt.value = inp.id; opt.textContent = inp.name;
+    sel.appendChild(opt); list.push(inp.name + ' [' + inp.state + ']');
+  });
+  document.getElementById('ports-list').textContent = list.join('\n') || 'No inputs detected';
+  if (prev) sel.value = prev;
+  const n = access.inputs.size;
+  setStatus(n>0?'ok':'amber', n>0 ? n+' input'+(n>1?'s':'')+' connected' : 'Connected — no devices');
+}
+
+function switchPort() { if (midiAccess) bindAll(midiAccess); }
+
+function setStatus(state, msg) {
+  document.getElementById('dot').className = 'dot'+(state==='ok'?' ok':state==='err'?' err':'');
+  document.getElementById('status-text').textContent = msg;
+}
+
+// ── MIDI message handler ──────────────────────────────────────────────────
+
+function onMsg(ev) {
+  const [s, d1, d2] = ev.data;
+  const type = s >> 4;
+  const ch   = (s & 0xF) + 1;
+  const raw  = [...ev.data].map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+  const now  = Date.now();
+  msgCount++;
+  document.getElementById('m-count').textContent = msgCount;
+
+  if (type === 9 && d2 > 0) {
+    // Note On
+    document.getElementById('m-note').textContent = noteName(d1);
+    document.getElementById('m-vel').textContent  = d2;
+    document.getElementById('vel-fill').style.width = Math.round(d2/127*100) + '%';
+    document.getElementById('m-ch').textContent   = ch;
+    activeNotes.add(d1);
+    updateActiveNotes();
+    logEvt('note on', noteName(d1).padEnd(4)+' #'+d1+'  vel:'+d2+'  ch:'+ch, raw, 'tag-on');
+
+    if (recState === 'armed') {
+      // First note — start recording and resync metronome to this moment
+      recState         = 'recording';
+      captureStartTime = now;
+      document.getElementById('record-status').innerHTML = '<span class="rec-dot"></span>Recording…';
+
+      // Resync metronome: step 0 just started, next click is one step away
+      if (document.getElementById('metro-on').checked) {
+        const ctx = getAudioCtx();
+        startMetro(ctx.currentTime + stepDurationMs / 1000, 1);
+      }
+
+      // Start progress ticker
+      const totalMs = stepDurationMs * STEPS;
+      progressTimer = setInterval(() => {
+        if (recState !== 'recording') return;
+        const elapsed = Date.now() - captureStartTime;
+        const pct     = Math.min(elapsed / totalMs * 100, 100);
+        const stepNum = Math.min(Math.floor(elapsed / stepDurationMs) + 1, STEPS);
+        document.getElementById('progress-bar').style.width = pct + '%';
+        document.getElementById('progress-label').textContent = 'Step ' + stepNum + ' / 32';
+        document.getElementById('countdown-label').textContent = Math.max(0, (totalMs - elapsed) / 1000).toFixed(1) + 's';
+        highlightStep(stepNum - 1);
+        if (elapsed >= totalMs) stopCapture();
+      }, 50);
+
+      eventLog.push({ type:'on', midi:d1, vel:d2, time:now });
+      if (voiceMap[d1] === undefined) voiceMap[d1] = nextVoice++;
+
+    } else if (recState === 'recording') {
+      eventLog.push({ type:'on', midi:d1, vel:d2, time:now });
+      if (voiceMap[d1] === undefined) voiceMap[d1] = nextVoice++;
+    }
+
+  } else if (type === 8 || (type === 9 && d2 === 0)) {
+    // Note Off
+    activeNotes.delete(d1);
+    updateActiveNotes();
+    logEvt('note off', noteName(d1).padEnd(4)+' #'+d1+'  ch:'+ch, raw, 'tag-off');
+    if (recState === 'recording') eventLog.push({ type:'off', midi:d1, vel:0, time:now });
+
+  } else if (type === 11) {
+    logEvt('cc', 'CC#'+d1+' = '+d2+'  ch:'+ch, raw, 'tag-cc');
+  }
+}
+
+function updateActiveNotes() {
+  const el = document.getElementById('active-notes');
+  if (activeNotes.size === 0) {
+    el.innerHTML = '<span style="color:var(--text3);font-size:12px;">—</span>';
+  } else {
+    el.innerHTML = [...activeNotes].sort((a,b)=>a-b).map(n=>'<span class="note-pill">'+noteName(n)+'</span>').join('');
+  }
+}
+
+function logEvt(type, msg, raw, tagCls) {
+  const log = document.getElementById('event-log');
+  const t   = new Date().toLocaleTimeString('en',{hour12:false});
+  const row = document.createElement('div');
+  row.className = 'ev-row';
+  row.innerHTML = '<span class="ev-time">'+t+'</span><span class="tag '+tagCls+'" style="flex-shrink:0;">'+type+'</span><span class="ev-msg">'+msg+'</span><span class="ev-raw">['+raw+']</span>';
+  log.insertBefore(row, log.firstChild);
+  if (log.children.length > 100) log.removeChild(log.lastChild);
+}
+function clearLog() {
+  document.getElementById('event-log').innerHTML = '<div class="ev-row"><span class="ev-msg" style="color:var(--text3);">Cleared.</span></div>';
+}
+
+// ── Tempo ─────────────────────────────────────────────────────────────────
+
+function getStepMs() {
+  const bpm = parseFloat(document.getElementById('bpm').value) || 120;
+  const div = parseInt(document.getElementById('step-size').value) || 8;
+  return (60000 / bpm) * (4 / div);
+}
+function updateStepDisplay() {
+  const ms = getStepMs();
+  document.getElementById('step-ms-display').textContent =
+    'Step: ' + Math.round(ms) + 'ms  ·  32 steps = ' + (ms*STEPS/1000).toFixed(1) + 's';
+}
+function updateTolLabel() {
+  const v = document.getElementById('noteoff-tol').value;
+  const ms = Math.round(getStepMs() * v / 100);
+  document.getElementById('noteoff-tol-label').textContent = v + '%  (' + ms + 'ms)';
+}
+updateStepDisplay();
+
+// ── Arm / Stop ────────────────────────────────────────────────────────────
+
+function armCapture() {
+  // Reset state
+  eventLog = []; finalGrid = []; voiceMap = {}; nextVoice = 0;
+  clearInterval(progressTimer);
+  recState       = 'armed';
+  stepDurationMs = getStepMs();
+
+  document.getElementById('arm-btn').disabled  = true;
+  document.getElementById('stop-btn').disabled = false;
+  document.getElementById('progress-wrap').style.display = 'block';
+  document.getElementById('progress-bar').style.width    = '0%';
+  document.getElementById('progress-label').textContent  = 'Waiting for first note…';
+  document.getElementById('countdown-label').textContent = '';
+  document.getElementById('record-status').innerHTML = '<span class="arm-dot"></span>Armed — metronome running, play to start…';
+  renderGrid(null);
+
+  // Start metronome pre-roll immediately so player can feel the tempo
+  if (document.getElementById('metro-on').checked) {
+    const ctx = getAudioCtx();
+    // Kick off with a small offset so first click isn't cut off
+    startMetro(ctx.currentTime + 0.05, 0);
+  }
+}
+
+function stopCapture() {
+  if (recState === 'idle') return;
+  stopMetro();
+  clearInterval(progressTimer);
+  recState = 'idle';
+  document.getElementById('arm-btn').disabled  = false;
+  document.getElementById('stop-btn').disabled = true;
+  document.getElementById('progress-bar').style.width    = '100%';
+  document.getElementById('countdown-label').textContent = '';
+
+  if (eventLog.length === 0) {
+    document.getElementById('record-status').textContent = 'No notes recorded.';
+    return;
+  }
+  document.getElementById('record-status').textContent = 'Building sequence…';
+  buildSequence();
+}
+
+// ── Build sequence ────────────────────────────────────────────────────────
+// Per-step slot packing:
+// 1. Reconstruct note segments (startMs/endMs) from raw on/off events
+// 2. For each step, collect active segments
+//    - A segment is "new" to this step if it wasn't occupying a slot last step
+//    - A segment is a "continuation" if it was in a slot last step and is still sounding
+// 3. Pass 1: lock continuing segments into their existing rows (→ tie)
+//    Pass 2: place new segments into free rows (→ note)
+//    Pass 3: empty rows → rest
+// 4. Transpose to finalGrid[row][step]
+
+function buildSequence() {
+  const startT = captureStartTime;
+  const sdms   = stepDurationMs;
+  const totalMs = sdms * STEPS;
+
+  // ── 1. Reconstruct segments ──
+  const openNotes = {};
+  const allSegs   = [];
+  const sorted    = [...eventLog].sort((a,b) => a.time - b.time);
+
+  sorted.forEach(ev => {
+    const relMs = ev.time - startT;
+    if (ev.type === 'on') {
+      // If this pitch was already open (no note-off received), close it first
+      if (openNotes[ev.midi]) {
+        allSegs.push({ midi:parseInt(ev.midi), vel:openNotes[ev.midi].vel,
+          startMs:openNotes[ev.midi].startMs, endMs:relMs });
+      }
+      openNotes[ev.midi] = { vel:ev.vel, startMs:relMs };
+    } else if (ev.type === 'off' && openNotes[ev.midi] !== undefined) {
+      allSegs.push({ midi:parseInt(ev.midi), vel:openNotes[ev.midi].vel,
+        startMs:openNotes[ev.midi].startMs, endMs:relMs });
+      delete openNotes[ev.midi];
+    }
+  });
+  // Close notes still held at end of recording
+  Object.keys(openNotes).forEach(midi => {
+    allSegs.push({ midi:parseInt(midi), vel:openNotes[midi].vel,
+      startMs:openNotes[midi].startMs, endMs:totalMs });
+  });
+
+  console.log('[seq] segments:', allSegs.map(s =>
+    noteName(s.midi)+' '+s.startMs.toFixed(0)+'–'+s.endMs.toFixed(0)+'ms'));
+
+  // ── 2. Pre-assign each segment to its "home step" ──
+  // Round startMs to nearest step — this handles timing imprecision naturally
+  // without any jitter window that can pull notes into the wrong step.
+  // A note arriving 10ms early at a step boundary rounds to that boundary's step.
+  const NOTE_ON_JITTER = 5; // ms — kept for _homeStep tie-break only
+
+  allSegs.forEach(seg => {
+    // Round to nearest step index
+    const rounded = Math.round(seg.startMs / sdms);
+    seg._homeStep = Math.max(0, Math.min(STEPS - 1, rounded));
+  });
+
+  // ── 3. Step-by-step slot packing ──
+  const slotSeg   = new Array(ROWS).fill(null);
+  const stepSlots = Array.from({length:STEPS}, () => new Array(ROWS).fill(null));
+
+  for (let i = 0; i < STEPS; i++) {
+    const stepStart = i * sdms;
+    const stepEnd   = (i + 1) * sdms;
+
+    const NOTE_OFF_TOL = sdms * (parseInt(document.getElementById('noteoff-tol').value) / 100);
+    const effectiveEnd = seg => (seg.endMs > stepEnd && seg.endMs <= stepEnd + NOTE_OFF_TOL)
+      ? stepEnd : seg.endMs;
+
+    // Segments that are audibly active in this step
+    const active = new Set(allSegs.filter(seg =>
+      Math.min(effectiveEnd(seg), stepEnd) - Math.max(seg.startMs, stepStart) > 0
+    ));
+
+    // Segments whose home step is this step (new note-ons)
+    // Deduplicate by midi: if same pitch has two segments homing here, keep later startMs
+    const homeSegs = new Map(); // midi -> seg
+    for (const seg of allSegs) {
+      if (seg._homeStep !== i) continue;
+      if (!homeSegs.has(seg.midi) || seg.startMs > homeSegs.get(seg.midi).startMs) {
+        homeSegs.set(seg.midi, seg);
+      }
+    }
+
+    const usedRows = new Set();
+    const usedSegs = new Set();
+
+    // Pass 1: carry continuing segments forward as ties
+    for (let row = 0; row < ROWS; row++) {
+      const prev = slotSeg[row];
+      if (!prev) continue;
+      if (!active.has(prev)) {
+        // Ended or snapped out
+        slotSeg[row] = null;
+        continue;
+      }
+      if (homeSegs.get(prev.midi) === prev) {
+        // This segment re-attacks this step (same object is a home seg) — treat as note
+        slotSeg[row] = null;
+        continue;
+      }
+      if (prev._homeStep === i) {
+        // This segment's home is this step but it's already in a slot — shouldn't happen
+        // but treat as note to avoid double placement
+        slotSeg[row] = null;
+        continue;
+      }
+      // Genuine continuation → tie
+      stepSlots[i][row] = { type:'tie', midi:prev.midi, vel:prev.vel };
+      usedRows.add(row);
+      usedSegs.add(prev);
+    }
+
+    // Pass 2: place home segments as notes in free rows
+    const freeRows = [];
+    for (let row = 0; row < ROWS; row++) {
+      if (!usedRows.has(row)) freeRows.push(row);
+    }
+    let fi = 0;
+    for (const [, seg] of homeSegs) {
+      if (usedSegs.has(seg)) continue;
+      if (fi >= freeRows.length) break;
+      const row = freeRows[fi++];
+      stepSlots[i][row] = { type:'note', midi:seg.midi, vel:seg.vel };
+      usedRows.add(row);
+      usedSegs.add(seg);
+      slotSeg[row] = seg;
+    }
+
+    // Pass 3: unused rows → rest
+    for (let row = 0; row < ROWS; row++) {
+      if (!stepSlots[i][row]) {
+        stepSlots[i][row] = { type:'rest', midi:null, vel:0 };
+        slotSeg[row] = null;
+      }
+    }
+  }
+
+  // ── 3. Transpose → finalGrid[row][step] ──
+  finalGrid = Array.from({length:ROWS}, (_, row) =>
+    Array.from({length:STEPS}, (_, i) => stepSlots[i][row])
+  );
+
+  // ── 4. Sort rows: lowest pitch → V1, highest → V4, rest-only rows last ──
+  finalGrid.sort((rowA, rowB) => {
+    const lowestMidi = row => {
+      const notes = row.filter(s => s.type === 'note' || s.type === 'tie');
+      if (notes.length === 0) return Infinity; // rest-only rows sink to bottom
+      return Math.min(...notes.map(s => parseInt(s.midi)));
+    };
+    return lowestMidi(rowA) - lowestMidi(rowB);
+  });
+
+  console.log('[seq] grid:', finalGrid.map((row,r) =>
+    'V'+(r+1)+': '+row.map(s=>s.type==='note'?noteName(s.midi):s.type[0].toUpperCase()).join(' ')));
+
+  renderGrid(finalGrid);
+  renderOutput(finalGrid);
+  let notes=0, ties=0, rests=0;
+  finalGrid.forEach(row => row.forEach(s => {
+    if(s.type==='note')notes++; else if(s.type==='tie')ties++; else rests++;
+  }));
+  document.getElementById('record-status').textContent =
+    'Done — '+notes+' notes · '+ties+' ties · '+rests+' rests';
+  // Enable playback
+  document.getElementById('play-btn').disabled = false;
+  document.getElementById('play-status').textContent = 'Ready';
+}
+
+// ── Grid render ───────────────────────────────────────────────────────────
+
+function renderGrid(grid) {
+  // Update thead to match STEPS
+  const thead = document.querySelector('.seq-table thead tr');
+  if (thead) {
+    thead.innerHTML = '<th style="width:24px;"></th>' + Array.from({length:STEPS},(_,i)=>'<th>'+(i+1)+'</th>').join('');
+  }
+
+  const tbody = document.getElementById('seq-body');
+  tbody.innerHTML = '';
+  for (let row = 0; row < ROWS; row++) {
+    const tr = document.createElement('tr');
+    const lbl = document.createElement('td');
+    lbl.className = 'row-label'; lbl.textContent = 'V'+(row+1);
+    tr.appendChild(lbl);
+    for (let col = 0; col < STEPS; col++) {
+      tr.appendChild(makeCell(row, col, grid));
+    }
+    tbody.appendChild(tr);
+  }
+}
+
+function makeCell(row, col, grid) {
+  const td = document.createElement('td');
+  td.id = 'cell-'+row+'-'+col;
+  const s = grid ? grid[row][col] : null;
+  if (!s || s.type === 'rest') {
+    td.classList.add('is-rest');
+    td.innerHTML = '<span class="cn">'+(col+1)+'</span>rest';
+  } else if (s.type === 'tie') {
+    td.classList.add('is-tie');
+    td.innerHTML = '<span class="cn">'+(col+1)+'</span>tie';
+  } else {
+    td.classList.add('is-note');
+    td.innerHTML = '<span class="cn">'+(col+1)+'</span>'+noteName(s.midi);
+  }
+  return td;
+}
+
+function highlightStep(stepIdx) {
+  document.querySelectorAll('.active-step').forEach(el => el.classList.remove('active-step'));
+  if (stepIdx < 0 || stepIdx >= STEPS) return;
+  for (let row = 0; row < ROWS; row++) {
+    const cell = document.getElementById('cell-'+row+'-'+stepIdx);
+    if (cell) cell.classList.add('active-step');
+  }
+}
+
+// ── Output text ───────────────────────────────────────────────────────────
+
+function renderOutput(grid) {
+  const lines = [];
+  lines.push('     ' + Array.from({length:STEPS}, (_,i) => String(i+1).padStart(5)).join(''));
+  lines.push('     ' + '-----'.repeat(STEPS));
+  for (let row = 0; row < ROWS; row++) {
+    const cells = grid[row].map(s => {
+      if (s.type === 'rest') return ' rest';
+      if (s.type === 'tie')  return '  tie';
+      return noteName(s.midi).padStart(5);
+    });
+    lines.push('V'+(row+1)+' : '+cells.join(''));
+  }
+  document.getElementById('output-area').value = lines.join('\n');
+  let notes=0, ties=0, rests=0;
+  grid.forEach(row => row.forEach(s => { if(s.type==='note')notes++; else if(s.type==='tie')ties++; else rests++; }));
+  document.getElementById('step-count').textContent = notes+' notes · '+ties+' ties · '+rests+' rests';
+}
+
+function clearOutput() {
+  finalGrid=[]; eventLog=[]; voiceMap={}; nextVoice=0;
+  recState='idle'; stopMetro(); clearInterval(progressTimer);
+  document.getElementById('arm-btn').disabled  = false;
+  document.getElementById('stop-btn').disabled = true;
+  document.getElementById('output-area').value = '';
+  document.getElementById('step-count').textContent = '';
+  document.getElementById('record-status').textContent = '';
+  document.getElementById('progress-wrap').style.display = 'none';
+  document.getElementById('progress-bar').style.width = '0%';
+  renderGrid(null);
+}
+
+function copyOutput() {
+  const ta = document.getElementById('output-area');
+  if (!ta.value) return;
+  navigator.clipboard.writeText(ta.value).then(() => {
+    const btn = event.target; btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+
+function downloadOutput() {
+  const text = document.getElementById('output-area').value;
+  if (!text) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+  a.download = 'sequence.txt'; a.click();
+}
+
+// ── MIDI Playback ─────────────────────────────────────────────────────────
+// Uses Web Audio lookahead scheduler for timing; sends MIDI via Web MIDI API.
+// Ties: note is kept open (no note-off / note-on) across tied steps.
+// Loops continuously until stopPlayback() is called.
+
+let playRunning    = false;
+let playSchedTimer = null;
+let playNextTime   = 0;      // AudioContext seconds for next step
+let playStepIdx    = 0;      // current step index (0-15)
+let playLoopCount  = 0;
+const PLAY_LOOKAHEAD   = 0.12;  // seconds
+const PLAY_SCHED_MS    = 25;
+
+// Track which notes are currently on per row, to manage note-off for ties
+// playHeld[row] = {midi, ch, port} | null
+let playHeld = new Array(ROWS).fill(null);
+
+function refreshPlayPorts() {
+  const sel = document.getElementById('play-port');
+  const prev = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  if (midiAccess) {
+    midiAccess.outputs.forEach(out => {
+      const opt = document.createElement('option');
+      opt.value = out.id; opt.textContent = out.name;
+      sel.appendChild(opt);
+    });
+  }
+  if (prev) sel.value = prev;
+}
+
+function getPlayOutput() {
+  if (!midiAccess) return null;
+  const id = document.getElementById('play-port').value;
+  return id ? midiAccess.outputs.get(id) : null;
+}
+
+function sendNoteOn(out, ch, midi, vel) {
+  if (!out || midi === null) return;
+  out.send([0x90 | ((ch - 1) & 0xF), midi & 0x7F, vel & 0x7F]);
+}
+
+function sendNoteOff(out, ch, midi) {
+  if (!out || midi === null) return;
+  out.send([0x80 | ((ch - 1) & 0xF), midi & 0x7F, 0]);
+}
+
+function allNotesOff(out, ch) {
+  if (!out) return;
+  // CC 123 = all notes off
+  out.send([0xB0 | ((ch - 1) & 0xF), 123, 0]);
+}
+
+function scheduleStep(stepIdx, audioTime) {
+  if (!finalGrid || finalGrid.length === 0) return;
+  const out = getPlayOutput();
+  const ch  = parseInt(document.getElementById('play-ch').value) || 1;
+  const earlyOffMs = stepDurationMs * 0.05; // 5% early note-off to prevent overlaps
+
+  for (let row = 0; row < ROWS; row++) {
+    const cell = finalGrid[row] ? finalGrid[row][stepIdx] : null;
+    if (!cell) continue;
+
+    // Look one step ahead (wrapping for loop)
+    const nextIdx = (stepIdx + 1) % STEPS;
+    const next = finalGrid[row] ? finalGrid[row][nextIdx] : null;
+
+    if (cell.type === 'rest') {
+      // Note-off was already sent 5% early by the previous tie/note step
+      // Nothing to do here
+    } else if (cell.type === 'note') {
+      // End any previously held note in this row
+      if (playHeld[row]) {
+        sendNoteOff(out, ch, playHeld[row].midi);
+        playHeld[row] = null;
+      }
+      sendNoteOn(out, ch, cell.midi, cell.vel || 100);
+      playHeld[row] = { midi: cell.midi, ch };
+
+      // If next step is a rest, send note-off 5% before the next step
+      if (next && next.type === 'rest') {
+        const offMidi = cell.midi;
+        setTimeout(() => {
+          if (!playRunning) return;
+          sendNoteOff(out, ch, offMidi);
+          if (playHeld[row] && playHeld[row].midi === offMidi) playHeld[row] = null;
+        }, stepDurationMs - earlyOffMs);
+      }
+
+    } else if (cell.type === 'tie') {
+      // Note continues ringing — no note-on needed
+      // But if next step ends the tie (rest or new note), send note-off 5% early
+      if (next && next.type !== 'tie') {
+        const offMidi = playHeld[row] ? playHeld[row].midi : null;
+        if (offMidi !== null) {
+          setTimeout(() => {
+            if (!playRunning) return;
+            sendNoteOff(out, ch, offMidi);
+            if (playHeld[row] && playHeld[row].midi === offMidi) playHeld[row] = null;
+          }, stepDurationMs - earlyOffMs);
+        }
+      }
+    }
+  }
+}
+
+function playbackScheduler() {
+  if (!playRunning) return;
+  const ctx = getAudioCtx();
+
+  while (playNextTime < ctx.currentTime + PLAY_LOOKAHEAD) {
+    const stepIdx = playStepIdx;
+
+    // Schedule MIDI at the right audio time
+    // We can't schedule MIDI into the future via Web MIDI API directly,
+    // so we use setTimeout offset from now
+    const delayMs = Math.max(0, (playNextTime - ctx.currentTime) * 1000);
+    const si = stepIdx; // capture for closure
+    setTimeout(() => {
+      if (!playRunning) return;
+      scheduleStep(si, playNextTime);
+      // Update UI on step advance
+      highlightPlayStep(si);
+      document.getElementById('play-step-display').textContent =
+        'Step ' + (si + 1) + ' / 32  ·  Loop ' + (playLoopCount + 1);
+    }, delayMs);
+
+    playNextTime += stepDurationMs / 1000;
+    playStepIdx++;
+    if (playStepIdx >= STEPS) {
+      playStepIdx = 0;
+      playLoopCount++;
+    }
+  }
+}
+
+function highlightPlayStep(stepIdx) {
+  document.querySelectorAll('.play-step').forEach(el => el.classList.remove('play-step'));
+  for (let row = 0; row < ROWS; row++) {
+    const cell = document.getElementById('cell-' + row + '-' + stepIdx);
+    if (cell) cell.classList.add('play-step');
+  }
+}
+
+function startPlayback() {
+  if (!finalGrid || finalGrid.length === 0) {
+    document.getElementById('play-status').textContent = 'Record a sequence first';
+    return;
+  }
+  const out = getPlayOutput();
+  if (!out) {
+    document.getElementById('play-status').textContent = 'Select a MIDI output port';
+    return;
+  }
+
+  stopPlayback(); // clean any previous state
+  playRunning   = true;
+  playStepIdx   = 0;
+  playLoopCount = 0;
+  playHeld      = new Array(ROWS).fill(null);
+
+  const ctx = getAudioCtx();
+  playNextTime = ctx.currentTime + 0.05; // small offset for first step
+
+  playSchedTimer = setInterval(playbackScheduler, PLAY_SCHED_MS);
+
+  document.getElementById('play-btn').disabled     = true;
+  document.getElementById('playStop-btn').disabled = false;
+  document.getElementById('play-status').textContent = 'Playing…';
+}
+
+function stopPlayback() {
+  playRunning = false;
+  clearInterval(playSchedTimer);
+
+  // Send note-offs for anything held
+  const out = getPlayOutput();
+  const ch  = parseInt(document.getElementById('play-ch').value) || 1;
+  playHeld.forEach(h => { if (h) sendNoteOff(out, ch, h.midi); });
+  playHeld = new Array(ROWS).fill(null);
+  if (out) allNotesOff(out, ch);
+
+  document.querySelectorAll('.play-step').forEach(el => el.classList.remove('play-step'));
+  document.getElementById('play-btn').disabled     = finalGrid.length === 0;
+  document.getElementById('playStop-btn').disabled = true;
+  document.getElementById('play-status').textContent = finalGrid.length > 0 ? 'Stopped' : 'No sequence loaded';
+  document.getElementById('play-step-display').textContent = '';
+}
+
+// Keep play port list in sync when MIDI state changes
+const _origRefreshPorts = refreshPorts;
+// Patch: also refresh play ports when MIDI state changes
+const __rp = refreshPorts;
+window.refreshPorts = function(access) {
+  __rp(access);
+  refreshPlayPorts();
+};
+
+renderGrid(null);
+</script>
+</body>
+</html>
